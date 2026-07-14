@@ -3,8 +3,10 @@ import {
   BeforeUpdate,
   Column,
   Entity,
+  OneToMany,
   PrimaryGeneratedColumn,
 } from 'typeorm';
+import { ProductImage } from './product-image.entity';
 
 //REPRESENTACION DE ESTO EN BD
 @Entity()
@@ -54,6 +56,15 @@ export class Product {
     default: [],
   })
   tags!: string[];
+
+  //RELACION ENTRE UNA TABLA Y OTRA PRODUCT.ENTITY Y PRODUCT IMAGE ENTITY
+  //Una a muchas
+  @OneToMany(() => ProductImage, (productImage) => productImage.product, {
+    cascade: true,
+    eager: true,
+    //aqui para que en el findone al momento de hacer la consulta nos salga mas facil las imges
+  })
+  images?: ProductImage[];
 
   //ANTES DE INSERTAR PARA VALDAR SLUG
   @BeforeInsert()
