@@ -7,7 +7,7 @@ import {
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { Product } from './entities/product.entity';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { validate as isUUID } from 'uuid';
@@ -23,6 +23,7 @@ export class ProductsService {
     private readonly productRepository: Repository<Product>,
     @InjectRepository(ProductImage)
     private readonly productImageRepository: Repository<ProductImage>,
+    private readonly dataSource: DataSource,
   ) {}
 
   async create(createProductDto: CreateProductDto) {
@@ -87,16 +88,37 @@ export class ProductsService {
   }
 
   async update(id: string, updateProductDto: UpdateProductDto) {
+    const { images, ...toUpdate } = updateProductDto;
     //PREPARAR PARA LA ACTUALIZACION
     const product = await this.productRepository.preload({
-      id: id,
-      ...updateProductDto,
+      id,
+      ...toUpdate,
       images: [],
     });
     if (!product) throw new NotFoundException('Product with id not found');
+
+    //SI HAY IMAGENES IMPLEMENTAREMOS LAS IMAGENES EL ELIMINADO CONTROLADO
+    //QUERYRUNNER
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
     try {
-      await this.productRepository.save(product);
-      return product;
+      if (images) {
+        //TENER CUIDADO SI LO DEJAS ASI BORRAS TODAS LAS IMAGENES
+        // await queryRunner.manager.delete(ProductImage)
+
+        await queryRunner.manager.delete(ProductImage, { product: { id: id } });
+        product.images = images?.map((image) =>
+          this.productImageRepository.create({ url: image }),
+        );
+      }
+      await queryRunner.manager.save(product);
+      await queryRunner.release();
+      //await this.productRepository.save(product);
+      //APLICAR LOS CAMBIOS
+      await queryRunner.commitTransaction();
+      return this.findOnePlain(id);
     } catch (error) {
       this.handleDbExceptions(error);
     }
@@ -108,6 +130,15 @@ export class ProductsService {
     return {
       message: 'OK DELETED',
     };
+  }
+
+  async deleteAllProducts() {
+    const query = this.productImageRepository.createQueryBuilder('product');
+    try {
+      return await query.delete().where({}).execute();
+    } catch (error) {
+      this.handleDbExceptions(error);
+    }
   }
   //NUEVO METODO PARA LOS ERRORES
   private handleDbExceptions(error: any) {
